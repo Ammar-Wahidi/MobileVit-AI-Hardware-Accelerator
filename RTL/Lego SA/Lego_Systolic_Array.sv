@@ -10,7 +10,9 @@ input  logic [DATA_W-1:0]       weight_in  [64]     ,   // weights for each PE
 input  logic [1:0]              TYPE_Lego           ,   
 input  logic                    load_w              ,   // load weight phase
 input  logic                    transpose_en        ,   // Weight Transpose enable for PE
+input  logic [7:0]              y_input_size        ,
 output logic [DATA_W_OUT-1:0]   psum_out[64]        ,   // bottom edge partial sums
+output logic                    load_w_finished     ,
 output logic                    valid_out               // Valid out psum Col
 );
 
@@ -35,7 +37,6 @@ logic   [DATA_W_OUT-1:0]    psum_LU [16]      ;
 logic   [DATA_W_OUT-1:0]    psum_RD [16]      ;
 logic   [DATA_W_OUT-1:0]    psum_LD [16]      ;
 
-logic   [5:0]       count       ;
 
 assign psum[0:15] = psum_RU ;
 assign psum[16:31]= psum_LU ;
@@ -44,7 +45,6 @@ assign psum[48:63]= psum_LD ;
 
 assign psum_out = psum_reg ;
 
-assign valid_out = (count >= 31);
 
 always_ff @(posedge clk or negedge rst_n)
 begin
@@ -153,7 +153,10 @@ endgenerate
 Lego_control_unit #() control_unit (
 .clk(clk),
 .rst_n(rst_n),
-.count_out(count)
+.valid_in(valid_in),
+.y_input_size(y_input_size),
+.load_w_finished(load_w_finished),
+.valid_out(valid_out)
 );
 
 SA_16x16_top #(.DATA_W(DATA_W),.DATA_W_OUT(DATA_W_OUT)) SA0_RightUp_corner (
