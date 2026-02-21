@@ -1,24 +1,24 @@
 
-// (Triangular Register Shift Right Logic)
-module TRSRL #(parameter DATAWIDTH = 8, N_SIZE = 16)(
+// (Triangular Register Shift Down Logic)
+module TRSDL #(parameter DATAWIDTH = 32, N_SIZE = 16)(
 input  logic                       clk                      ,
 input  logic                       rst_n                    ,
-input  logic [DATAWIDTH-1:0]       act_in   [N_SIZE]        ,   
-output logic [DATAWIDTH-1:0]       act_out  [N_SIZE]        
+input  logic [DATAWIDTH-1:0]       psum_in   [N_SIZE]        ,   
+output logic [DATAWIDTH-1:0]       psum_out  [N_SIZE]        
 );
 localparam NUM_OF_REGS = ((N_SIZE-1)*N_SIZE)/2    ;     // Total number of intermediate registers required for data shifting in triangular reg logic
 
 logic   [DATAWIDTH-1:0]        reg_shifted         [1:NUM_OF_REGS]     ;
-logic   [DATAWIDTH-1:0]        act                 [N_SIZE]            ;
+logic   [DATAWIDTH-1:0]        psum                 [N_SIZE]            ;
 
-assign  act[0] = act_in[0]          ;
-assign  act[1] = reg_shifted[1]     ;
+assign  psum[0] = psum_in[0]          ;
+assign  psum[1] = reg_shifted[1]     ;
 
 genvar k,i_deptha ;
 genvar l ;
 
 generate;
-    for (k = 1 ; k<16 ; k++)
+    for (k = 1 ; k<N_SIZE ; k++)
     begin
         localparam int base = (k*(k-1))/2;
         always_ff @(posedge clk or negedge rst_n)
@@ -26,7 +26,7 @@ generate;
             if(!rst_n)
                 reg_shifted[(base)+1] <= 0   ;
             else
-                reg_shifted[(base)+1] <= act_in[k]   ;
+                reg_shifted[(base)+1] <= psum_in[k]   ;
         end
         if(k>1)
         begin : DEPTH_LEVEL
@@ -47,7 +47,7 @@ generate;
         end
         if(k>1)
         begin
-            assign act[k] = reg_shifted[(base)+1+k-1]  ;
+            assign psum[k] = reg_shifted[(base)+1+k-1]  ;
         end
     end
 
@@ -55,7 +55,7 @@ endgenerate
 
 generate;
     for (l = 0 ; l < N_SIZE ; l++)
-        assign act_out[l] = act[l] ;
+        assign psum_out[l] = psum[l] ;
 endgenerate
 
 endmodule
