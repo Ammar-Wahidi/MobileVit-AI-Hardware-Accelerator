@@ -1,121 +1,130 @@
 // ================================================================
 //  Lego_SA — LEGO Reconfigurable Systolic Array
 //
-//  Four 16×16 SA_NxN_top tiles controlled by a single Lego_CU.
-//  SA_NxN_top tiles are pure datapaths — no internal SA_CU.
-//  Lego_CU drives load_w, valid_out, and busy for the entire system.
+//  Top-level module. Contains four 16x16 systolic array tiles
+//  (L_SA_NxN_top) and one shared control unit (Lego_CU).
+//  The four tiles are pure datapaths; all sequencing is done
+//  by Lego_CU, which drives load_w, valid_out, and busy for
+//  the entire system.
 //
-//  ── Tile layout ────────────────────────────────────────────────
+//  Tile positions:
 //
-//    ┌──────────┬──────────┐
-//    │  RU (SA0)│  LU (SA1)│  ← top row
-//    ├──────────┼──────────┤
-//    │  RD (SA2)│  LD (SA3)│  ← bottom row
-//    └──────────┴──────────┘
-//     left col   right col
+//    +----------+----------+
+//    | RU (SA0) | LU (SA1) |   top row
+//    +----------+----------+
+//    | RD (SA2) | LD (SA3) |   bottom row
+//    +----------+----------+
+//      left col   right col
 //
-//  ── Shape types ────────────────────────────────────────────────
+//  Shape types (lego_type):
 //
-//    TYPE 0 — (16 rows × 64 cols)
-//      W: 16×64,  A: 16×16,  C: 16×64
-//      All tiles compute different column slices of the same W.
-//      Same act broadcast to all 4 tiles.
-//      Output: concatenate {RU, LU, RD, LD} = 64 elements.
+//    TYPE 0 — 16 rows x 64 cols   (A: 16x16, W: 16x64, C: 16x64)
+//      All four tiles hold a different 16-column block of W.
+//      act_in[0:N-1] is broadcast identically to every tile.
+//      Output: psum_out = {RU | LU | RD | LD} — 64 elements.
 //
-//    TYPE 1 — (32 rows × 32 cols)
-//      W: 32×32,  A: 16×32,  C: 16×32
-//      RU/LU hold top half of weight rows; RD/LD hold bottom half.
-//      Top act half → RU, LU;  bottom act half → RD, LD.
-//      Output: RU+RD (left cols), LU+LD (right cols) = 32 elements.
+//    TYPE 1 — 32 rows x 32 cols   (A: 16x32, W: 32x32, C: 16x32)
+//      RU and LU hold the top 16 weight rows; RD and LD hold
+//      the bottom 16. Top act half feeds RU and LU; bottom half
+//      feeds RD and LD.
+//      Output: psum_out[0:N-1] = RU+RD, [N:2N-1] = LU+LD — 32 elements.
 //
-//    TYPE 2 — (64 rows × 16 cols)
-//      W: 64×16,  A: 16×64,  C: 16×16
-//      Each tile holds its own 16-row weight slice.
-//      Each tile gets its own 16-element act slice.
-//      Output: RU+RD+LU+LD (4-way add) = 16 elements.
+//    TYPE 2 — 64 rows x 16 cols   (A: 16x64, W: 64x16, C: 16x16)
+//      Each tile holds its own independent 16-row weight slice.
+//      Each tile receives its own independent 16-element activation
+//      slice. All four tile outputs are summed element-wise.
+//      Output: psum_out[0:N-1] = RU+RD+LU+LD — 16 elements.
 //
-//  ── Weight bus packing (weight_in always 4×N_TILE wide) ────────
+//  Weight bus packing (weight_in is 4*N_TILE wide):
+//    weight_in[0       : N-1  ] -> RU tile
+//    weight_in[N       : 2N-1 ] -> LU tile
+//    weight_in[2N      : 3N-1 ] -> RD tile
+//    weight_in[3N      : 4N-1 ] -> LD tile
+//    The caller interleaves weight rows across these four slots
+//    according to lego_type on each LOAD_W cycle.
 //
-//    weight_in[0    : N-1  ] → RU
-//    weight_in[N    : 2N-1 ] → LU
-//    weight_in[2N   : 3N-1 ] → RD
-//    weight_in[3N   : 4N-1 ] → LD
+//  Activation bus packing (act_in is 4*N_TILE wide):
+//    TYPE 0: act_in[0:N-1] broadcast to all tiles
+//    TYPE 1: act_in[0:N-1]   -> RU, LU
+//            act_in[N:2N-1]  -> RD, LD
+//    TYPE 2: act_in[0:N-1]   -> RU
+//            act_in[N:2N-1]  -> RD
+//            act_in[2N:3N-1] -> LU
+//            act_in[3N:4N-1] -> LD
 //
-//    Caller interleaves rows per type (see comments in weight routing).
+//  Output bus packing (psum_out is 4*N_TILE wide):
+//    TYPE 0: [0:N-1]=RU  [N:2N-1]=LU  [2N:3N-1]=RD  [3N:4N-1]=LD
+//    TYPE 1: [0:N-1]=RU+RD  [N:2N-1]=LU+LD  rest=0
+//    TYPE 2: [0:N-1]=RU+RD+LU+LD  rest=0
+//  Protocol:
+//    1. Assert valid_in=1.
+//    2. Hold weight_in valid for N_TILE cycles (LOAD_W).
+//    3. Hold act_in valid for N_TILE cycles (FEED_A).
+//    4. Wait for valid_out=1 (DRAIN then OUTPUT automatic).
+//    5. Capture psum_out for N_TILE cycles while valid_out=1.
+//    6. Wait for busy=0 before next matmul.
 //
-//  ── Activation bus packing (act_in always 4×N_TILE wide) ───────
-//
-//    TYPE 0: act_in[0:N-1] broadcast → RU, LU, RD, LD
-//    TYPE 1: act_in[0:N-1] → RU, LU;  act_in[N:2N-1] → RD, LD
-//    TYPE 2: act_in[0:N-1]→RU  [N:2N-1]→RD  [2N:3N-1]→LU  [3N:4N-1]→LD
-//
-//  ── Output bus (psum_out always 4×N_TILE wide) ─────────────────
-//
-//    TYPE 0: psum_out[0:N-1]=RU  [N:2N-1]=LU  [2N:3N-1]=RD  [3N:4N-1]=LD
-//    TYPE 1: psum_out[0:N-1]=RU+RD  [N:2N-1]=LU+LD  [2N:4N-1]=0
-//    TYPE 2: psum_out[0:N-1]=RU+RD+LU+LD  [N:4N-1]=0
-//
-//  ── Timing (from valid_in assertion) ───────────────────────────
-//
-//    LOAD_W : N_TILE cycles  valid_in=1, weight_in valid
-//    FEED_A : N_TILE cycles  valid_in=1, act_in valid
-//    DRAIN  : N_TILE-1 cycles  autonomous
-//    OUTPUT : N_TILE cycles  autonomous, valid_out=1
+//  Parameters:
+//    DATA_W     : activation / weight bit-width  (default 8)
+//    DATA_W_OUT : accumulator bit-width          (default 32)
+//    N_TILE     : per-tile dimension             (default 16)
 //
 // ================================================================
 
 module Lego_SA #(
-    parameter DATA_W     = 8 ,
+    parameter DATA_W     = 8,
     parameter DATA_W_OUT = 32,
     parameter N_TILE     = 16
 )(
-    input  logic                       clk          ,
-    input  logic                       rst_n        ,
+    input  logic                       clk,
+    input  logic                       rst_n,
 
-    // ── Control ─────────────────────────────────────────────────
-    input  logic                       valid_in     ,
-    input  logic [1:0]                 lego_type    ,
-    input  logic [7:0]                 y_input_size ,
-    input  logic                       transpose_en ,
+    // Control
+    input  logic                       valid_in,      // data-valid / matmul start trigger
+    input  logic [1:0]                 lego_type,     // shape select: 0=wide, 1=square, 2=tall
+    input  logic [7:0]                 y_input_size,  // reserved for variable FEED_A length
+    input  logic                       transpose_en,  // 0 = weights load from bottom, 1 = from right
 
-    // ── Data inputs (4×N_TILE wide) ─────────────────────────────
+    // Data inputs (4 x N_TILE wide buses)
     input  logic [DATA_W-1:0]          act_in    [4*N_TILE],
     input  logic [DATA_W-1:0]          weight_in [4*N_TILE],
 
-    // ── Outputs ─────────────────────────────────────────────────
+    // Outputs
     output logic [DATA_W_OUT-1:0]      psum_out  [4*N_TILE],
-    output logic                       valid_out            ,
+    output logic                       valid_out,
     output logic                       busy
 );
 
 // ── Local parameters ──────────────────────────────────────────────
-localparam TOTAL_W = 4 * N_TILE;
+localparam TOTAL_W = 4 * N_TILE;   // full bus width
 
 // ── Per-tile data signals ─────────────────────────────────────────
-logic [DATA_W-1:0]     tile_act_RU [N_TILE];
-logic [DATA_W-1:0]     tile_act_LU [N_TILE];
-logic [DATA_W-1:0]     tile_act_RD [N_TILE];
-logic [DATA_W-1:0]     tile_act_LD [N_TILE];
+// Activation and weight buses sliced per tile.
+logic [DATA_W-1:0]    tile_act_RU [N_TILE];
+logic [DATA_W-1:0]    tile_act_LU [N_TILE];
+logic [DATA_W-1:0]    tile_act_RD [N_TILE];
+logic [DATA_W-1:0]    tile_act_LD [N_TILE];
 
-logic [DATA_W-1:0]     tile_w_RU   [N_TILE];
-logic [DATA_W-1:0]     tile_w_LU   [N_TILE];
-logic [DATA_W-1:0]     tile_w_RD   [N_TILE];
-logic [DATA_W-1:0]     tile_w_LD   [N_TILE];
+logic [DATA_W-1:0]    tile_w_RU   [N_TILE];
+logic [DATA_W-1:0]    tile_w_LU   [N_TILE];
+logic [DATA_W-1:0]    tile_w_RD   [N_TILE];
+logic [DATA_W-1:0]    tile_w_LD   [N_TILE];
 
-logic [DATA_W_OUT-1:0] psum_RU     [N_TILE];
-logic [DATA_W_OUT-1:0] psum_LU     [N_TILE];
-logic [DATA_W_OUT-1:0] psum_RD     [N_TILE];
-logic [DATA_W_OUT-1:0] psum_LD     [N_TILE];
+// Per-tile partial sum outputs from L_SA_NxN_top.
+logic [DATA_W_OUT-1:0] psum_RU    [N_TILE];
+logic [DATA_W_OUT-1:0] psum_LU    [N_TILE];
+logic [DATA_W_OUT-1:0] psum_RD    [N_TILE];
+logic [DATA_W_OUT-1:0] psum_LD    [N_TILE];
 
-// ── Control signal from Lego_CU ───────────────────────────────────
-// load_w: broadcast to all 4 tiles simultaneously.
-// Replaces the per-tile SA_CU that previously generated it internally.
+// ── Shared control signal ─────────────────────────────────────────
+// Generated by Lego_CU and broadcast to all four tiles.
 logic load_w_cu;
 
-// ── Output adder wires ────────────────────────────────────────────
-logic [DATA_W_OUT-1:0] psum_add_left  [N_TILE];  // RU + RD
-logic [DATA_W_OUT-1:0] psum_add_right [N_TILE];  // LU + LD
-logic [DATA_W_OUT-1:0] psum_add_all   [N_TILE];  // RU + RD + LU + LD
+// ── Output adder tree ─────────────────────────────────────────────
+// Pre-computed pairwise and four-way sums used by the output mux.
+logic [DATA_W_OUT-1:0] psum_add_left  [N_TILE];   // RU + RD (left column pair)
+logic [DATA_W_OUT-1:0] psum_add_right [N_TILE];   // LU + LD (right column pair)
+logic [DATA_W_OUT-1:0] psum_add_all   [N_TILE];   // RU + RD + LU + LD (all four)
 
 genvar g;
 generate
@@ -128,10 +137,9 @@ generate
 endgenerate
 
 // ================================================================
-//  ① Lego_CU — The ONE AND ONLY control unit
-//
-//  Generates load_w, valid_out, and busy for the entire system.
-//  No other control logic exists anywhere in the design.
+//  Master control unit
+//  Generates load_w_cu, valid_out, and busy for the whole system.
+//  No tile contains its own control logic.
 // ================================================================
 Lego_CU #(
     .N_TILE (N_TILE)
@@ -147,64 +155,73 @@ Lego_CU #(
 );
 
 // ================================================================
-//  ② Weight routing
+//  Weight routing
 //
-//  weight_in bus is sliced into 4 equal N_TILE-wide sections.
-//  Each section goes to one tile's weight_in port.
-//  Routing is fixed — the caller interleaves rows per type:
+//  The 4*N_TILE-wide weight_in bus is always sliced into four
+//  equal N_TILE-wide sections, one per tile. This wiring is fixed.
+//  The caller is responsible for placing the correct weight rows
+//  in the correct slots on each LOAD_W cycle:
 //
-//    TYPE 0 — load cycle k:
-//      weight_in[0:N-1]   = W[k][0:N-1]       → RU (col slice 0)
-//      weight_in[N:2N-1]  = W[k][N:2N-1]      → LU (col slice 1)
-//      weight_in[2N:3N-1] = W[k][2N:3N-1]     → RD (col slice 2)
-//      weight_in[3N:4N-1] = W[k][3N:4N-1]     → LD (col slice 3)
+//    TYPE 0, cycle k:
+//      slot 0 (RU) = W[k][0:N-1]       (column block 0)
+//      slot 1 (LU) = W[k][N:2N-1]      (column block 1)
+//      slot 2 (RD) = W[k][2N:3N-1]     (column block 2)
+//      slot 3 (LD) = W[k][3N:4N-1]     (column block 3)
 //
-//    TYPE 1 — load cycle k:
-//      weight_in[0:N-1]   = W[k][0:N-1]        → RU (row k,   left cols)
-//      weight_in[N:2N-1]  = W[k][N:2N-1]       → LU (row k,   right cols)
-//      weight_in[2N:3N-1] = W[k+N][0:N-1]      → RD (row k+N, left cols)
-//      weight_in[3N:4N-1] = W[k+N][N:2N-1]     → LD (row k+N, right cols)
+//    TYPE 1, cycle k (interleaved top/bottom rows):
+//      slot 0 (RU) = W[k][0:N-1]       (top half, left cols)
+//      slot 1 (LU) = W[k][N:2N-1]      (top half, right cols)
+//      slot 2 (RD) = W[k+N][0:N-1]     (bottom half, left cols)
+//      slot 3 (LD) = W[k+N][N:2N-1]    (bottom half, right cols)
 //
-//    TYPE 2 — load cycle k:
-//      weight_in[0:N-1]   = W[k   ][0:N-1]     → RU (rows 0..N-1)
-//      weight_in[N:2N-1]  = W[k+N ][0:N-1]     → RD (rows N..2N-1)
-//      weight_in[2N:3N-1] = W[k+2N][0:N-1]     → LU (rows 2N..3N-1)
-//      weight_in[3N:4N-1] = W[k+3N][0:N-1]     → LD (rows 3N..4N-1)
+//    TYPE 2, cycle k (four independent row groups):
+//      slot 0 (RU) = W[k      ][0:N-1] (rows   0..N-1)
+//      slot 1 (LU) = W[k+2N   ][0:N-1] (rows 2N..3N-1)
+//      slot 2 (RD) = W[k+N    ][0:N-1] (rows  N..2N-1)
+//      slot 3 (LD) = W[k+3N   ][0:N-1] (rows 3N..4N-1)
+//
+//  Weights are zeroed when load_w_cu=0 (FEED_A / idle cycles).
 // ================================================================
 always_comb begin
-    tile_w_RU = '{default:'0};
-    tile_w_LU = '{default:'0};
-    tile_w_RD = '{default:'0};
-    tile_w_LD = '{default:'0};
+    tile_w_RU = '{default: '0};
+    tile_w_LU = '{default: '0};
+    tile_w_RD = '{default: '0};
+    tile_w_LD = '{default: '0};
 
     if (load_w_cu) begin
-        tile_w_RU = weight_in[0        : N_TILE-1  ];
-        tile_w_LU = weight_in[N_TILE   : 2*N_TILE-1];
-        tile_w_RD = weight_in[2*N_TILE : 3*N_TILE-1];
-        tile_w_LD = weight_in[3*N_TILE : TOTAL_W-1 ];
+        tile_w_RU = weight_in[0          : N_TILE-1   ];
+        tile_w_LU = weight_in[N_TILE     : 2*N_TILE-1 ];
+        tile_w_RD = weight_in[2*N_TILE   : 3*N_TILE-1 ];
+        tile_w_LD = weight_in[3*N_TILE   : TOTAL_W-1  ];
     end
 end
 
 // ================================================================
-//  ③ Activation routing
+//  Activation routing
 //
-//  TYPE 0: broadcast act_in[0:N-1] to all 4 tiles
-//  TYPE 1: act_in[0:N-1] → RU,LU;  act_in[N:2N-1] → RD,LD
-//  TYPE 2: four independent 16-element slices to four tiles
+//  Slices act_in according to lego_type and routes each slice to
+//  the correct tile. Active only during FEED_A (load_w_cu=0 and
+//  valid_in=1). All tile act buses are zeroed during LOAD_W.
 //
-//  Routing is active only during FEED_A (load_w_cu=0 and valid_in=1).
-//  During LOAD_W, act inputs are zeroed (don't-care but safe).
+//    TYPE 0: broadcast act_in[0:N-1] to all four tiles.
+//    TYPE 1: act_in[0:N-1] feeds RU and LU (top activation half).
+//            act_in[N:2N-1] feeds RD and LD (bottom half).
+//    TYPE 2: four independent N-wide slices, one per tile.
+//            act_in[0:N-1]   -> RU
+//            act_in[N:2N-1]  -> RD
+//            act_in[2N:3N-1] -> LU
+//            act_in[3N:4N-1] -> LD
 // ================================================================
 always_comb begin
-    tile_act_RU = '{default:'0};
-    tile_act_LU = '{default:'0};
-    tile_act_RD = '{default:'0};
-    tile_act_LD = '{default:'0};
+    tile_act_RU = '{default: '0};
+    tile_act_LU = '{default: '0};
+    tile_act_RD = '{default: '0};
+    tile_act_LD = '{default: '0};
 
     if (!load_w_cu && valid_in) begin
         case (lego_type)
 
-            // TYPE 0: 16×64 — same act broadcast to all 4 tiles
+            // TYPE 0: 16x64 — same activations broadcast to all tiles
             2'd0 : begin
                 tile_act_RU = act_in[0       : N_TILE-1  ];
                 tile_act_LU = act_in[0       : N_TILE-1  ];
@@ -212,15 +229,15 @@ always_comb begin
                 tile_act_LD = act_in[0       : N_TILE-1  ];
             end
 
-            // TYPE 1: 32×32 — top/bottom split
+            // TYPE 1: 32x32 — top and bottom activation halves split across tile rows
             2'd1 : begin
-                tile_act_RU = act_in[0      : N_TILE-1  ];
-                tile_act_LU = act_in[0      : N_TILE-1  ];
-                tile_act_RD = act_in[N_TILE : 2*N_TILE-1];
-                tile_act_LD = act_in[N_TILE : 2*N_TILE-1];
+                tile_act_RU = act_in[0       : N_TILE-1  ];
+                tile_act_LU = act_in[0       : N_TILE-1  ];
+                tile_act_RD = act_in[N_TILE  : 2*N_TILE-1];
+                tile_act_LD = act_in[N_TILE  : 2*N_TILE-1];
             end
 
-            // TYPE 2: 64×16 — 4-way independent split
+            // TYPE 2: 64x16 — four independent activation slices, one per tile
             2'd2 : begin
                 tile_act_RU = act_in[0        : N_TILE-1  ];
                 tile_act_RD = act_in[N_TILE   : 2*N_TILE-1];
@@ -228,57 +245,61 @@ always_comb begin
                 tile_act_LD = act_in[3*N_TILE : TOTAL_W-1 ];
             end
 
-            default : begin /* all zeros from default above */ end
+            default : begin /* tile acts remain zero from the default above */ end
 
         endcase
     end
 end
 
 // ================================================================
-//  ④ Output mux
+//  Output mux
 //
-//  Selects and combines tile outputs according to lego_type.
-//  Always combinatorial from tile psum outputs.
-//  Meaningful only while valid_out=1 (caller should gate on that).
+//  Combines tile partial sum outputs according to lego_type.
+//  This logic is purely combinational from the tile psum ports.
+//  Values are only meaningful while valid_out=1.
+//
+//    TYPE 0: direct tile concatenation — 64 valid elements
+//    TYPE 1: element-wise pair sums — 32 valid elements
+//            [0:N-1]  = RU+RD  (left column pair)
+//            [N:2N-1] = LU+LD  (right column pair)
+//    TYPE 2: four-way element-wise sum — 16 valid elements
+//            [0:N-1]  = RU+RD+LU+LD
 // ================================================================
 always_comb begin
-    psum_out = '{default:'0};
+    psum_out = '{default: '0};
 
     case (lego_type)
 
-        // TYPE 0: direct concatenation — 64 valid elements
+        // TYPE 0: concatenate all four tile outputs side by side
         2'd0 : begin
-            psum_out[0        : N_TILE-1  ] = psum_RU;
-            psum_out[N_TILE   : 2*N_TILE-1] = psum_LU;
-            psum_out[2*N_TILE : 3*N_TILE-1] = psum_RD;
-            psum_out[3*N_TILE : TOTAL_W-1 ] = psum_LD;
+            psum_out[0          : N_TILE-1  ] = psum_RU;
+            psum_out[N_TILE     : 2*N_TILE-1] = psum_LU;
+            psum_out[2*N_TILE   : 3*N_TILE-1] = psum_RD;
+            psum_out[3*N_TILE   : TOTAL_W-1 ] = psum_LD;
         end
 
-        // TYPE 1: element-wise add paired tiles — 32 valid elements
-        // [0:N-1]  = RU+RD  (left  column block, top+bottom rows contribution)
-        // [N:2N-1] = LU+LD  (right column block)
+        // TYPE 1: element-wise sum of left pair and right pair
         2'd1 : begin
-            psum_out[0      : N_TILE-1  ] = psum_add_left;
-            psum_out[N_TILE : 2*N_TILE-1] = psum_add_right;
+            psum_out[0       : N_TILE-1  ] = psum_add_left;
+            psum_out[N_TILE  : 2*N_TILE-1] = psum_add_right;
         end
 
-        // TYPE 2: 4-way element-wise add — 16 valid elements
-        // Each tile contributes partial sums over its 16-row weight slice.
-        // Sum gives the complete dot product result.
+        // TYPE 2: all four tiles summed element-wise into 16 values
         2'd2 : begin
             psum_out[0 : N_TILE-1] = psum_add_all;
         end
 
-        default : psum_out = '{default:'0};
+        default : psum_out = '{default: '0};
 
     endcase
 end
 
 // ================================================================
-//  ⑤ SA_NxN_top tile instances — pure datapaths
+//  Tile instances — pure datapaths, no internal control
 //
-//  load_w_cu (from Lego_CU) is broadcast to ALL 4 tiles.
-//  No tile has its own SA_CU — Lego_CU is the single authority.
+//  load_w_cu from Lego_CU is connected to all four tiles.
+//  Each tile has its own act and weight slice from the routing
+//  blocks above, and produces its own psum output.
 // ================================================================
 
 // RU — top-left tile
