@@ -54,18 +54,19 @@
 // ================================================================
 
 module Lego_CU #(
-    parameter N_TILE = 16
+    parameter N_TILE = 16,
+    parameter Y_INPUT_SIZE = 8
 )(
-    input  logic       clk,
-    input  logic       rst_n,
+    input  logic                        clk,
+    input  logic                        rst_n,
 
-    input  logic       valid_in,      // data-valid signal and matmul start trigger
-    input  logic [1:0] lego_type,     // shape selector (used by Lego_SA routing, not here)
-    input  logic [7:0] y_input_size,  // reserved for future variable-length FEED_A
+    input  logic                        valid_in,      // data-valid signal and matmul start trigger
+    input  logic [1:0]                  lego_type,     // shape selector (used by Lego_SA routing, not here)
+    input  logic [Y_INPUT_SIZE-1:0]     y_input_size,  // reserved for future variable-length FEED_A
 
-    output logic       load_w,        // weight-latch enable, broadcast to all four tiles
-    output logic       valid_out,     // HIGH during OUTPUT phase (N_TILE cycles)
-    output logic       busy           // HIGH whenever state is not IDLE
+    output logic                        load_w,        // weight-latch enable, broadcast to all four tiles
+    output logic                        valid_out,     // HIGH during OUTPUT phase (N_TILE cycles)
+    output logic                        busy           // HIGH whenever state is not IDLE
 );
 
 // ── State encoding ────────────────────────────────────────────────

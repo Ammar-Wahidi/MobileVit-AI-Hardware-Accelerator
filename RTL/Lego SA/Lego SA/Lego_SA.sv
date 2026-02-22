@@ -74,6 +74,7 @@
 module Lego_SA #(
     parameter DATA_W     = 8,
     parameter DATA_W_OUT = 32,
+    parameter Y_INPUT_SIZE = 8,
     parameter N_TILE     = 16
 )(
     input  logic                       clk,
@@ -82,7 +83,7 @@ module Lego_SA #(
     // Control
     input  logic                       valid_in,      // data-valid / matmul start trigger
     input  logic [1:0]                 lego_type,     // shape select: 0=wide, 1=square, 2=tall
-    input  logic [7:0]                 y_input_size,  // reserved for variable FEED_A length
+    input  logic [Y_INPUT_SIZE-1:0]    y_input_size,  // reserved for variable FEED_A length
     input  logic                       transpose_en,  // 0 = weights load from bottom, 1 = from right
 
     // Data inputs (4 x N_TILE wide buses)
@@ -142,7 +143,8 @@ endgenerate
 //  No tile contains its own control logic.
 // ================================================================
 Lego_CU #(
-    .N_TILE (N_TILE)
+    .N_TILE (N_TILE),
+    .Y_INPUT_SIZE(Y_INPUT_SIZE)
 ) u_lego_cu (
     .clk          (clk          ),
     .rst_n        (rst_n        ),
