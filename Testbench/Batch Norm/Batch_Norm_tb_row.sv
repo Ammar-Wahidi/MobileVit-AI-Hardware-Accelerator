@@ -76,9 +76,9 @@ initial begin
         for (i = 0; i < N; i = i + 1) begin
             mult_result = $signed(A[i]) * $signed(x_ref[i]);
             sum_result  = mult_result +
-                          {{(Data_Width-FRAC_BITS){B[i][Data_Width-1]}},
+                          $signed({{(Data_Width-FRAC_BITS){B[i][Data_Width-1]}},
                            B[i],
-                           {FRAC_BITS{1'b0}}};
+                           {FRAC_BITS{1'b0}}});
 
             y_ref[i] = sum_result[Data_Width + FRAC_BITS - 1 : FRAC_BITS];
         end

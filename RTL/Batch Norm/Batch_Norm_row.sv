@@ -39,7 +39,7 @@ module Batch_Norm #(
 
             // sign-extend B[i] to same width before addition
             sum_result[i] = mult_result[i] + 
-                            {{(Data_Width- FRAC_BITS ){B[i][Data_Width-1]}}, B[i],{FRAC_BITS{1'b0}}}; //Q16.16 + Q16.16 = Q17.16
+                            $signed({{(Data_Width- FRAC_BITS ){B[i][Data_Width-1]}}, B[i],{FRAC_BITS{1'b0}}}); //Q16.16 + Q16.16 = Q17.16
 
             // truncate/normalize result back to Data_Width bits
             // keeps the same Q format (Qm.n)
