@@ -7,18 +7,40 @@ module tb_swish_array();
     localparam int WIDTH = 16;         // 16-bit data width per element
     localparam int FRACT_BITS = 8;     // Q8.8 Format
 
-    
-    reg  signed [WIDTH-1:0] x_array [0:N-1];
-    wire signed [WIDTH-1:0] y_array [0:N-1];
+    localparam real CLK_PERIOD = 10.0; // 100 MHz
 
+    
+    // ---------------------------------------------------------------
+    // DUT Signals
+    // ---------------------------------------------------------------
+    logic                    clk;
+    logic                    rst_n;
+    logic                    valid_in;
+    logic signed [WIDTH-1:0] x_array [0:N-1];
+    logic signed [WIDTH-1:0] y_array [0:N-1];
+    logic                    valid_out;
+
+    // ---------------------------------------------------------------
+    // DUT Instantiation
+    // ---------------------------------------------------------------
     swish_array #(
         .N(N),
         .WIDTH(WIDTH),
         .FRACT_BITS(FRACT_BITS)
     ) dut (
-        .x(x_array),
-        .y(y_array)
+        .clk      (clk),
+        .rst_n    (rst_n),
+        .valid_in (valid_in),
+        .x        (x_array),
+        .y        (y_array),
+        .valid_out(valid_out)
     );
+
+    // ---------------------------------------------------------------
+    // Clock Generation
+    // ---------------------------------------------------------------
+    initial clk = 0;
+    always #(CLK_PERIOD / 2.0) clk = ~clk;
 
     // -----------------------------------------------------------
     // Function 1: Ideal Swish (SiLU) 
@@ -58,6 +80,14 @@ module tb_swish_array();
     real val_diff;     
 
     initial begin
+        // --- Reset ---
+        rst_n    = 1'b0;
+        valid_in = 1'b0;
+        for (j = 0; j < N; j = j + 1) x_array[j] = '0;
+        repeat (4) @(posedge clk);
+        @(negedge clk);
+        rst_n = 1'b1;
+
         $display("\n------------------------------------------------------------------------------------------------");
         $display("| Lane |   In   |   Ideal Swish    |  Ideal H-Swish   |   HW Output    |   Diff (Ideal-HW)  |");
         $display("------------------------------------------------------------------------------------------------");
@@ -65,15 +95,22 @@ module tb_swish_array();
         for (start_val = -8; start_val <= 124; start_val = start_val + N) begin 
             
             // 1. LOAD THE UNPACKED ARRAY
+            @(negedge clk);
+            valid_in = 1'b1;
             for (j = 0; j < N; j = j + 1) begin
                 current_in = start_val + j;
                 // Scale integer to Q8.8 fixed-point format
                 x_array[j] = current_in * (1 << FRACT_BITS); 
             end
-            
-            #1;  // Wait for the hardware array to process everything
-            
-            // 2. READ AND PRINT THE ARRAY
+
+            // 2. WAIT FOR valid_out — pipeline is 1 cycle deep:
+            //    posedge N  : x captured into x_reg
+            //    posedge N+1: y_comb registered into y, valid_out = 1
+            @(posedge clk);  // posedge N
+            @(posedge clk);  // posedge N+1 — valid_out is now 1
+            #1;               // let NBA updates settle
+
+             // 3. READ AND PRINT THE ARRAY
             for (j = 0; j < N; j = j + 1) begin
                 current_in = start_val + j;
                 
@@ -92,6 +129,10 @@ module tb_swish_array();
             // Print a separator between parallel batches for readability
             $display("------------------------------------------------------------------------------------------------");
         end
+
+        // Deassert valid_in cleanly
+        @(negedge clk);
+        valid_in = 1'b0;
         $finish;
     end
 
