@@ -109,10 +109,11 @@
 module Lego_SA_tb;
 
 // ── Parameters ────────────────────────────────────────────────────
-localparam DATA_W     = 8;
-localparam DATA_W_OUT = 32;
-localparam N          = 16;
-localparam TOTAL      = 4 * N;   // 64
+localparam DATA_W       = 8;
+localparam DATA_W_OUT   = 32;
+localparam N            = 16;
+localparam TOTAL        = 4 * N;   // 64
+localparam Y_INPUT_SIZE = 8;
 
 // ── DUT signals ───────────────────────────────────────────────────
 logic                  clk;
@@ -129,9 +130,10 @@ logic                  busy;
 
 // ── DUT ───────────────────────────────────────────────────────────
 Lego_SA #(
-    .DATA_W    (DATA_W    ),
-    .DATA_W_OUT(DATA_W_OUT),
-    .N_TILE    (N         )
+    .DATA_W      (DATA_W      ),
+    .DATA_W_OUT  (DATA_W_OUT  ),
+    .Y_INPUT_SIZE(Y_INPUT_SIZE),
+    .N_TILE      (N           )
 ) dut (
     .clk         (clk         ),
     .rst_n       (rst_n       ),
