@@ -2,7 +2,9 @@ module SA_Batch #(
     parameter DATA_W     = 8,
     parameter DATA_W_OUT = 32,
     parameter Y_INPUT_SIZE = 8,
-    parameter N_TILE     = 16
+    parameter N_TILE     = 16,
+    localparam N_PER_ROW = 64 
+
 )(
     input   logic                       clk,
     input   logic                       rst_n,
@@ -18,8 +20,8 @@ module SA_Batch #(
     input  logic [DATA_W-1:0]           weight_in [4*N_TILE],
 
     // A,B Prams input 
-    input  logic [Data_Width-1:0]   A [0:N-1], 
-    input  logic [Data_Width-1:0]   B [0:N-1], 
+    input  logic [DATA_W_OUT-1:0]   A [0:N_PER_ROW-1], 
+    input  logic [DATA_W_OUT-1:0]   B [0:N_PER_ROW-1],  
 
     // Output 
     output logic                        valid_out,
@@ -29,7 +31,6 @@ module SA_Batch #(
 
 localparam TOTAL_W = 4 * N_TILE;   // full bus width
 localparam FRAC_BITS = 8 ;
-localparam N_PER_ROW = 64 ;
 
 logic [DATA_W_OUT-1:0]      psum_out_row  [TOTAL_W] ;
 logic                       valid_out_SA ;
@@ -40,7 +41,7 @@ Lego_SA #(
     .Y_INPUT_SIZE(Y_INPUT_SIZE),
     .N_TILE(N_TILE)
 ) u_SA (
-    .clk(clk),
+    .CLK(clk),
     .rst_n(rst_n),
     .valid_in(valid_in_SA),
     .lego_type(lego_type),
@@ -55,10 +56,10 @@ Lego_SA #(
 
 Batch_Norm #(
     .Data_Width(DATA_W_OUT),
-    .FRAC_BITS(FRAC_BITS)
+    .FRAC_BITS(FRAC_BITS),
     .N(N_PER_ROW)
 ) Batch_Normalization (
-    .CLk(clk),
+    .CLK(clk),
     .RST(rst_n),
     .in_row(psum_out_row),
     .INBatch_Valid(valid_out_SA),
