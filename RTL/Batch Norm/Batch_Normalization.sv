@@ -49,7 +49,7 @@ module Batch_Normalization #(
             x[i] = in_row[i]; // Q8.8
 
             // multiply A[i] * x[i]  → 2*Data_Width bits
-            // signed multiplication is synthesizable
+            //  multiplication is synthesizable
             mult_result[i] = (A[i+channel_base]) * (x[i]); //Q16.16
 
 
