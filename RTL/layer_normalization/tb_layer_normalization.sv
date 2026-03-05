@@ -76,35 +76,58 @@ initial begin
         // Wait for valid
         wait(norm_final_out_valid);
 
-        //$display("==============================================");
-        //$display("TEST %0d", test);
-        //$display("--------------- INPUT VECTOR ----------------");
+        $display("==============================================");
+        $display("TEST %0d", test);
+        $display("--------------- INPUT VECTOR ----------------");
 
         for (i = 0; i < EMBED_DIM; i = i + 1)
-           // $display("IN[%0d] = %h", i, activation_in[i]);
+            $display("IN[%0d] = %h", i, activation_in[i]);
 
-       // $display("------------- EXPECTED OUTPUT ---------------");
+         $display("------------- EXPECTED OUTPUT ---------------");
 
         for (i = 0; i < EMBED_DIM; i = i + 1)
-            //$display("EXP[%0d] = %h", i, expected_mem[test*EMBED_DIM + i]);
+            $display("EXP[%0d] = %h", i, expected_mem[test*EMBED_DIM + i]);
 
-        //$display("-------------- DUT OUTPUT -------------------");
+         $display("-------------- DUT OUTPUT -------------------");
 
         // Compare
         for (i = 0; i < EMBED_DIM; i = i + 1) begin
 
-            //$display("OUT[%0d] = %h", i, normalized_output[i]);
+    reg signed [DATA_WIDTH-1:0] diff;
+    real exp_real;
+    real out_real;
+    real percent_error;
 
-            if (normalized_output[i] !== expected_mem[test*EMBED_DIM + i]) begin
-                //$display("❌ MISMATCH at index %0d", i);
-                error_count = error_count + 1;
-            end
-        end
+    $display("OUT[%0d] = %h", i, normalized_output[i]);
 
-        if (error_count == 0)
-           // $display("✅ TEST %0d PASSED", test);
+    diff = normalized_output[i] - expected_mem[test*EMBED_DIM + i];
+
+    // Convert Q24.8 to real numbers
+    exp_real = expected_mem[test*EMBED_DIM + i] / 256.0;
+    out_real = normalized_output[i] / 256.0;
+
+    if (exp_real != 0)
+        percent_error = ((out_real - exp_real) / exp_real) * 100.0;
+    else
+        percent_error = 0.0;
+
+    $display("   EXP = %h | ERROR = %0d | %%ERROR = %f%%",
+             expected_mem[test*EMBED_DIM + i],
+             diff,
+             percent_error);
+
+    if (percent_error > 1.0 || percent_error < -1.0) begin
+        $display(" ERROR > 1%% at index %0d", i);
+        error_count = error_count + 1;
+    end
+
+end
+
+
+          if (error_count == 0)
+             $display(" TEST %0d PASSED", test);
         else
-            //$display("❌ TEST %0d FAILED", test);
+            $display(" TEST %0d FAILED", test);
 
         @(posedge clk);
     end

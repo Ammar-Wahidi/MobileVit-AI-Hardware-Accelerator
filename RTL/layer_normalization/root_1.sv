@@ -1,15 +1,15 @@
 module root_1 #(
-    parameter DATA_WIDTH = 32,
-    parameter K_WIDTH    = 6 ,
+    parameter DATA_WIDTH = 32 ,
+    parameter K_WIDTH    = 6  ,
     parameter M_WIDTH    = 17 ,
     parameter EMBED_DIM  = 32
 ) (
     input  wire                                              clk                                ,
     input  wire                                              rst_n                              ,
     input  wire                                              std_in_en                          ,
-    input  wire        [(2*DATA_WIDTH)-1:0]                  vari                               ,
-    output reg         [K_WIDTH-1       :0]                  k                                  ,
-    output reg         [M_WIDTH-1       :0]                  m                                  ,
+    input  wire         [(2*DATA_WIDTH)-1:0]                 vari                               ,
+    output reg          [K_WIDTH-1       :0]                 k                                  ,
+    output reg          [M_WIDTH-1       :0]                 m                                  ,
     output reg                                               root_1_out_valid            
 );
 
@@ -23,7 +23,7 @@ reg  [M_WIDTH-1       :0]      m_comb         ;
 reg                            count          ;
 
 
-assign shifter            = counter - 'd16    ;
+assign shifter            = (counter - (DATA_WIDTH/2))    ;
 
 always @(posedge clk , negedge rst_n) begin
     if (~rst_n) begin
@@ -47,7 +47,7 @@ end
 
 always @(posedge clk , negedge rst_n) begin
     if (~rst_n) begin
-        counter <= 'd63           ;
+        counter <= (2*DATA_WIDTH - 1) ;
     end else  begin
         counter <= counter_comb   ;
     end 
@@ -69,7 +69,7 @@ always @(*) begin
     end else if (counter_en && (!counter_target)) begin
         counter_comb = counter - 1'b1 ;
     end else if (!counter_en) begin
-        counter_comb = 'd63        ;
+        counter_comb = (2*DATA_WIDTH - 1)        ;
     end else begin
         counter_comb = counter     ;
     end
@@ -96,7 +96,7 @@ end
 always @(*) begin
     if (std_in_en) begin
         counter_en = 1'b1 ;
-    end else if ((counter != 'd63) && (!counter_target)) begin
+    end else if ((counter != (2*DATA_WIDTH -1)) && (!counter_target)) begin
         counter_en = 1'b1 ;
     end else begin
         counter_en = 1'b0 ;

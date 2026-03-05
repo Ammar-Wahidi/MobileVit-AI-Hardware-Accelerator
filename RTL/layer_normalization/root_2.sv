@@ -1,6 +1,6 @@
 module root_2 #(
     parameter DATA_WIDTH = 32,
-    parameter K_WIDTH    = 6 ,
+    parameter K_WIDTH    = 6,
     parameter M_WIDTH    = 17,
     parameter EMBED_DIM  = 32
 ) (
@@ -13,9 +13,9 @@ module root_2 #(
     output reg                                               root_2_out_valid                         
 );
 
-reg  [K_WIDTH-1       :0]      shifter ;
-wire [7:0]                     lut_index; 
-assign lut_index = m[15:8];
+wire  [7:0]        lut_index ; 
+
+assign lut_index = m[15:8]   ;
 
 always @(posedge clk , negedge rst_n) begin
     if (~rst_n) begin
