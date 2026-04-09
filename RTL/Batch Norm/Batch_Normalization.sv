@@ -9,18 +9,18 @@ module Batch_Normalization #(
     input  wire                           INBatch_Valid,
     input  wire  [Data_Width-1:0]   A [0:319], // scale (γ)
     input  wire  [Data_Width-1:0]   B [0:319], // bias (β)
-    output reg   [Data_Width-1:0]   out_row [0:N-1],
-    output reg                            OutBatch_Valid
+    output reg signed   [Data_Width-1:0]   out_row [0:N-1],
+    output reg signed                            OutBatch_Valid
 );
 
     // internal signals
-    reg   [Data_Width-1:0] x [0:N-1];
-    reg   [Data_Width-1:0] y [0:N-1];
+    reg signed   [Data_Width-1:0] x [0:N-1];
+    reg signed   [Data_Width-1:0] y [0:N-1];
 
     // expanded internal math signals
-    reg  [2*Data_Width-1:0] mult_result   [0:N-1];
-    reg  [2*Data_Width-1:0] mult_shifted  [0:N-1];
-    reg  [2*Data_Width:0]   sum_result    [0:N-1];
+    reg signed  [2*Data_Width-1:0] mult_result   [0:N-1];
+    reg signed  [2*Data_Width-1:0] mult_shifted  [0:N-1];
+    reg signed  [2*Data_Width:0]   sum_result    [0:N-1];
 
     integer i;
 
@@ -50,16 +50,16 @@ module Batch_Normalization #(
 
             // multiply A[i] * x[i]  → 2*Data_Width bits
             //  multiplication is synthesizable
-            mult_result[i] = (A[i+channel_base]) * (x[i]); //Q16.16
+            mult_result[i] = $signed(A[i+channel_base]) * $signed(x[i]); //Q16.16
 
 
             // sign-extend B[i] to same width before addition
             sum_result[i] = mult_result[i] + 
-                            ({{(Data_Width- FRAC_BITS ){B[i+channel_base][Data_Width-1]}}, B[i+channel_base],{FRAC_BITS{1'b0}}}); //Q16.16 + Q16.16 = Q17.16
+                            $signed({{(Data_Width- FRAC_BITS ){B[i+channel_base][Data_Width-1]}}, B[i+channel_base],{FRAC_BITS{1'b0}}}); //Q16.16 + Q16.16 = Q17.16
 
             // truncate/normalize result back to Data_Width bits
             // keeps the same Q format (Qm.n)
-            y[i] = sum_result[i][Data_Width + FRAC_BITS - 1 : FRAC_BITS]; //Q8.8 from 8 to 23 >> 16 bit
+            y[i] = $signed sum_result[i][Data_Width + FRAC_BITS - 1 : FRAC_BITS]; //Q8.8 from 8 to 23 >> 16 bit
         end
     end
 
