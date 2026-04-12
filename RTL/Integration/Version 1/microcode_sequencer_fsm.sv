@@ -17,6 +17,7 @@ module microcode_sequencer_fsm (
     output logic        sa_valid_in, 
     output logic        sa_valid_in1,  //sys swish
     output logic        sa_valid_in2,  // sys layer
+    output logic        sa_valid_in3,  // sys soft
     
     // Memory Pointers TO SRAM Controller
     output logic [15:0] sram_read_addr_1, 
@@ -87,9 +88,10 @@ module microcode_sequencer_fsm (
         next_state       = current_state;
         load_w           = 1'b0;
         vpu_add_en       = 1'b0;
-        sa_valid_in     = 1'b0;
-        sa_valid_in1     = 1'b0;
-        sa_valid_in2     = 1'b0;
+        sa_valid_in      = 1'b0;
+        sa_valid_in1     = 1'b0; //sys + swish
+        sa_valid_in2     = 1'b0; //sys + layer
+        sa_valid_in3     = 1'b0; //sys + softmax
         sram_read_en     = 1'b0;
         sram_write_en    = final_valid_out; // Write to SRAM when data emerges from Swish
         
@@ -115,12 +117,13 @@ module microcode_sequencer_fsm (
             end
 
             STATE_DECODE: begin
-                case (op_code)
-                    4'h0: next_state = STATE_EXEC_VPU1;     // sys+swish
-                    4'h1: next_state = STATE_EXEC_LOOP;    // 3*(sys+swish)
-                    4'h2: next_state = STATE_EXEC_ADD;    //add
-                    4'h3: next_state = STATE_EXEC_VPU2;  // sys+layer 
-                    4'h4: next_state = STATE_SYSTOLIC;  // sys 
+                case (op_code) 
+                    4'h0: next_state = STATE_EXEC_VPU1;       // sys+swish
+                    4'h1: next_state = STATE_EXEC_VPU2;      // sys+layer 
+                    4'h2: next_state = STATE_EXEC_VPU3;     //  sys+soft 
+                    4'h3: next_state = STATE_EXEC_LOOP;    //   3*(sys+swish)
+                    4'h4: next_state = STATE_EXEC_ADD;    //    add
+                    4'h5: next_state = STATE_SYSTOLIC;   //     sys 
                     4'hF: begin
                         inference_done = 1'b1;
                         next_state     = STATE_IDLE;
@@ -140,6 +143,11 @@ module microcode_sequencer_fsm (
             STATE_EXEC_VPU2: begin
                 sram_read_en = 1'b1;
                 sa_valid_in2  = 1'b1; // Trigger the entire chain
+                next_state   = STATE_WAIT_PIPE;
+            end
+            STATE_EXEC_VPU3: begin
+                sram_read_en = 1'b1;
+                sa_valid_in3 = 1'b1; // Trigger the entire chain
                 next_state   = STATE_WAIT_PIPE;
             end
             STATE_SYSTOLIC: 
@@ -181,6 +189,11 @@ module microcode_sequencer_fsm (
                     sram_read_en = 1'b1; 
                     sa_valid_in1 = 1'b1; 
                 end
+                else if (op_code == 4'h2) 
+                begin 
+                    sram_read_en = 1'b1; 
+                    vpu_add_en = 1'b1; 
+                end
                 else if (op_code == 4'h3) 
                 begin 
                     sram_read_en = 1'b1; 
@@ -189,20 +202,22 @@ module microcode_sequencer_fsm (
                 else if (op_code == 4'h4) 
                 begin 
                     sram_read_en = 1'b1; 
-                    sa_valid_in = 1'b1; 
+                    sa_valid_in3 = 1'b1; 
                 end
-                else if (op_code == 4'h2) 
+                else if (op_code == 4'h5) 
                 begin 
                     sram_read_en = 1'b1; 
-                    vpu_add_en = 1'b1; 
+                    sa_valid_in = 1'b1; 
                 end
+                
 
                 if (final_valid_out) 
                 begin
                     if (op_code == 4'h1 && loop_counter < 2'd2) 
                     begin 
                         inc_loop = 1'b1; next_state = STATE_EXEC_LOOP; 
-                    end else 
+                    end 
+                    else
                     begin 
                         clr_loop = 1'b1; inc_pc = 1'b1; next_state = STATE_FETCH; 
                     end

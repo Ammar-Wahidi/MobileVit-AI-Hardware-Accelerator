@@ -10,9 +10,10 @@ module mobilevit_lego_datapath #(
     input  logic                        rst_n,
 
     // Independent Parallel Control Signals
+    input  logic                        valid_in,    
     input  logic                        valid_in1,    // 1 = Trigger Swish Path
     input  logic                        valid_in2,   // 1 = Trigger LayerNorm Path
-    input  logic                        valid_in,    
+    input  logic                        valid_in3,   // 1 = Trigger softmax Path
     
     input  logic [1:0]                  lego_type,   
     input  logic [7:0]                  y_input_size, 
@@ -38,7 +39,7 @@ module mobilevit_lego_datapath #(
     // 0. Setup & Trigger Logic
     // ---------------------------------------------------------
     logic sa_start;
-    assign sa_start = valid_in | valid_in1 | valid_in2; // SA runs if either path is requested
+    assign sa_start = valid_in | valid_in1 | valid_in2 |valid_in3; // SA runs if either path is requested
 
     logic [DATA_W-1:0]     sa_act_unsigned    [0:TOTAL_W-1]; 
     logic [DATA_W-1:0]     sa_weight_unsigned [0:TOTAL_W-1]; 
@@ -97,15 +98,44 @@ module mobilevit_lego_datapath #(
         .DATA_WIDTH(DATA_W_OUT),
         .K_WIDTH(6),
         .M_WIDTH(17),
+        .FRAC(28),
         .EMBED_DIM(TOTAL_W) 
     ) u_layernorm (
         .clk(clk),
         .rst_n(rst_n),
         .sum_en_1(sa_valid_out && valid_in2), // Only active if Path 2 was selected
         .activation_in(sa_psum),
-        .normalized_output(normalized_output),
-        .norm_final_out_valid(norm_final_out_valid)
+        .gamma('{default: 32'sd1}),
+        .beta('{default: 32'sd1}),
+        .final_out(normalized_output),
+        .out_valid(norm_final_out_valid)
     );
+
+    // 1. Internal Wires/Signals for Softmax
+    logic                 softmax_ready;
+    logic                 softmax_valid_out;
+    logic signed [31:0]   softmax_output_array [0:TOTAL_W-1]; // Assuming data_t is 32-bit
+
+
+    // 2. The Instantiation
+    softmax_top #(
+        .DATA_WIDTH(32),              // 32-bit precision
+        .FRAC_BITS(28),               // Q4.28 fixed-point format
+        .VECTOR_SIZE(TOTAL_W)        // 64 elements per row
+    ) u_softmax (
+        .clk(clk),
+        .rst_n(rst_n),
+
+        // Handshake Interface
+        .start(sa_valid_out && valid_in3),           // Triggered by the FSM (Opcode 0x08)
+        .ready(softmax_ready),        // Tells FSM if Softmax is free (optional to use)
+        .valid_out(softmax_valid_out),// Tells FSM the calculation is done
+
+        // Data Interface
+        .input_vector(sa_psum),
+        .output_vector(softmax_output_array)
+    );
+
 
     logic signed [SWISH_W-1:0] layernorm_out_final [0:TOTAL_W-1];
     generate
@@ -146,12 +176,21 @@ module mobilevit_lego_datapath #(
                 if (norm_final_out_valid)    final_out[c] = layernorm_out_final[c];
                 else if (vpu_swish_valid)    final_out[c] = vpu_swish_out_final[c];
                 else if (add_v3)             final_out[c] = add_result[c];
+                else if (softmax_valid_out)  final_out[c] = softmax_output_array[c];
                 else if (sa_valid_out)       final_out[c] = sa_psum_unsigned[c]; 
                 else                         final_out[c] = 0; 
             end
         end
     endgenerate
 
-    assign final_valid_out = norm_final_out_valid | vpu_swish_valid | add_v3 |sa_valid_out;
+always_comb 
+begin
+    if      (valid_in2)       final_valid_out = norm_final_out_valid; // Opcode 3:LayerNorm
+    else if (valid_in1)       final_valid_out = vpu_swish_valid;      // Opcode 0/1: Swish
+    else if (vpu_add_en)      final_valid_out = add_v3;               // Opcode 2:Adder
+    else if (valid_in3)       final_valid_out = softmax_valid_out;
+    else if (valid_in)        final_valid_out = sa_valid_out;         // Opcode :   
+    else                      final_valid_out = 1'b0;
+end
 
 endmodule

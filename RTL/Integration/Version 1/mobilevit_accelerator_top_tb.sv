@@ -5,7 +5,7 @@ module mobilevit_accelerator_top_tb;
     // --- Parameters ---
     parameter DATA_W     = 8;
     parameter SWISH_W    = 32;
-    parameter N_TILE     = 16;
+    parameter N_TILE     = 64;
     parameter TOTAL_W    = 4 * N_TILE; 
 
     // --- DUT Signals ---
@@ -37,13 +37,12 @@ module mobilevit_accelerator_top_tb;
     always_comb begin
         if (sram_read_en) begin
             for (int i = 0; i < TOTAL_W; i++) begin
-                sram_act_data[i]    = 8'd3;  // لاحظ استخدمنا = بدل <=
+                sram_act_data[i]    = 8'd3;  
                 sram_weight_data[i] = 8'd7;
                 sram_add_main[i]    = 32'd100 + i;
                 sram_add_skip[i]    = 32'd50;
             end
         end else begin
-            // لازم نحط الـ else عشان نتجنب الـ Latch في الـ Combinational logic
             for (int i = 0; i < TOTAL_W; i++) begin
                 sram_act_data[i]    = '0;
                 sram_weight_data[i] = '0;

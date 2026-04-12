@@ -39,6 +39,7 @@ module mobilevit_accelerator_top #(
     logic        trigger_datapath; 
     logic        trigger_datapath1; 
     logic        trigger_datapath2; 
+    logic        trigger_datapath3; 
     logic        sa_valid_out;
     logic        final_valid_out;
 
@@ -71,6 +72,7 @@ module mobilevit_accelerator_top #(
         .sa_valid_in(trigger_datapath), 
         .sa_valid_in1(trigger_datapath1), 
         .sa_valid_in2(trigger_datapath2), 
+        .sa_valid_in3(trigger_datapath3), 
         
         // Control to External SRAM
         .sram_read_addr_1(sram_read_addr_1),
@@ -100,6 +102,7 @@ module mobilevit_accelerator_top #(
         .valid_in(trigger_datapath),
         .valid_in1(trigger_datapath1), 
         .valid_in2(trigger_datapath2), 
+        .valid_in3(trigger_datapath3), 
         
         .lego_type(2'd1),      
         .y_input_size(8'd16), 

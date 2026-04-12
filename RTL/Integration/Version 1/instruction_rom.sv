@@ -14,7 +14,7 @@ module instruction_rom (
     always_comb begin
     case (pc_addr)
         // 1. (sys+swish) >> Buff A (Address 100)
-        10'd0: instruction = 64'h4_0100_0000_0000_100;
+        10'd0: instruction = 64'h3_0100_0000_0000_100;
         //10'd0: instruction = 64'h1_0101_0100_0300_400; 
 /*
         // 2. Buff A >> (sys+swish)*3 >> Buff D (Address 400)
@@ -44,6 +44,8 @@ module instruction_rom (
 */
         // 10. HALT
         10'd9: instruction = 64'hF_0000_0000_0000_000; 
+        10'd10: instruction = 64'hF_0000_0000_0000_000; 
+        10'd11: instruction = 64'hF_0000_0000_0000_000; 
 
         default: instruction = 64'hF_0000_0000_0000_000;
     endcase
