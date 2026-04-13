@@ -5,8 +5,10 @@ module softmax_top
     parameter VECTOR_SIZE = 8
 )
 (
+    input  logic                         valid_in                  ,
     input  logic signed [DATA_WIDTH-1:0] input_vector [VECTOR_SIZE],
-    output logic signed [DATA_WIDTH-1:0] output_vector [VECTOR_SIZE]
+    output logic signed [DATA_WIDTH-1:0] output_vector [VECTOR_SIZE],
+    output logic                         valid_out      
 );
 
 logic signed [DATA_WIDTH-1:0] max_val;
@@ -14,6 +16,8 @@ logic signed [DATA_WIDTH-1:0] shifted [VECTOR_SIZE];
 logic signed [DATA_WIDTH-1:0] exp_vec [VECTOR_SIZE];
 logic signed [DATA_WIDTH-1:0] sum_exp;
 logic signed [DATA_WIDTH-1:0] inv_sum;
+
+
 
 vector_max #(
     .DATA_WIDTH(DATA_WIDTH),
